@@ -37,6 +37,25 @@ from ..renderers import (
 from ..serializers.phones import RealPhoneSerializer, RelayNumberSerializer
 
 
+"""
+Twilio does not allow clients to delete messages that are "in-progress":
+
+https://www.twilio.com/docs/sms/api/message-resource#update-a-message-resource
+
+So, this custom response closes the connection first, which moves the message
+from "in-progress" to a finalized state. Then it calls the Twilio API to delete
+the message.
+
+See https://stackoverflow.com/a/4314182
+"""
+class DeleteTwilioMessageResponse(response.Response):
+    def close(self) -> None:
+        super().close()
+        sms_sid = self.renderer_context.get("request").data.get("SmsSid")
+        client = twilio_client()
+        client.messages(sms_sid).delete()
+
+
 def twilio_validator():
     phones_config = apps.get_app_config("phones")
     validator = phones_config.twilio_validator
@@ -369,9 +388,13 @@ def inbound_sms(request):
         relay_number = RelayNumber.objects.get(number=inbound_to)
         real_phone = RealPhone.objects.get(user=relay_number.user, verified=True)
     except ObjectDoesNotExist:
-        raise exceptions.ValidationError("Could not find relay number.")
+        return DeleteTwilioMessageResponse(
+            "Could not find relay number.", status=400
+        )
     if not relay_number.enabled:
-        raise exceptions.ValidationError("Number is not accepting messages.")
+        return DeleteTwilioMessageResponse(
+            "Number is not accepting messages.", status=400
+        )
     client = twilio_client()
     client.messages.create(
         from_=relay_number.number,
