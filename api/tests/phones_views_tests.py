@@ -630,7 +630,7 @@ def test_inbound_sms_valid_twilio_signature_disabled_number(
     assert response.status_code == 400
     decoded_content = response.content.decode()
     assert decoded_content.startswith("<?xml")
-    assert "Not Accepting Messages" in decoded_content
+    assert "Number is not accepting messages." in decoded_content
     mocked_twilio_client.messages.create.assert_not_called()
 
 
